@@ -1,8 +1,8 @@
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
-import ccxt
 import yfinance as yf
 import smtplib
 from email.mime.text import MIMEText
@@ -38,19 +38,15 @@ def send_email(subject, body):
     except Exception as e:
         print("Email error:", e)
 
-def get_crypto_data(symbol):
-    binance = ccxt.binance()
-    symbol = symbol.replace('USDT', '/USDT') if '/' not in symbol else symbol
-    bars = binance.fetch_ohlcv(symbol, timeframe='1m', limit=200)
-    df = pd.DataFrame(bars, columns=["time", "open", "high", "low", "close", "volume"])
-    df["time"] = pd.to_datetime(df["time"], unit="ms")
-    return df
-
-def get_stock_data(symbol):
-    df = yf.download(symbol, period="1d", interval="1m")
-    df.reset_index(inplace=True)
-    df.rename(columns={"Datetime": "time"}, inplace=True)
-    return df
+def get_data(symbol):
+    try:
+        df = yf.download(symbol, period="1d", interval="1m")
+        df.reset_index(inplace=True)
+        df.rename(columns={"Datetime": "time"}, inplace=True)
+        return df
+    except Exception as e:
+        print("Yahoo Finance Error:", e)
+        return pd.DataFrame()
 
 def generate_signals(df):
     df["SMA10"] = df["close"].rolling(10).mean()
@@ -102,10 +98,9 @@ def generate_signals(df):
 @app.get("/signals/{symbol}", response_model=SignalResponse)
 async def get_signals(symbol: str):
     try:
-        if symbol.endswith("USDT"):
-            df = get_crypto_data(symbol)
-        else:
-            df = get_stock_data(symbol)
+        df = get_data(symbol)
+        if df.empty:
+            raise Exception("No data returned")
         result = generate_signals(df)
         return result
     except Exception as e:
